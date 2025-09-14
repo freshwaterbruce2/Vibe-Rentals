@@ -1,0 +1,5 @@
+{
+  "name": "RentScout: AI-Powered Property Finder",
+  "description": "An elegant and modern rental property aggregation application that uses AI to generate and display property listings. Features advanced filtering, a dual-panel layout with a property list and map view, and a sleek dark-mode interface.",
+  "requestFramePermissions": []
+}
