@@ -10,6 +10,11 @@ interface FilterPanelProps {
     weatherLoading: boolean;
     weatherError: string | null;
     location: string;
+    onApplyFilters: () => void;
+    loading: boolean;
+    onSaveSettings: () => void;
+    onLoadSettings: () => void;
+    savedSettingsExist: boolean;
 }
 
 const FilterButton: React.FC<{ value: any; current: any; onClick: (value: any) => void; children: React.ReactNode }> = ({ value, current, onClick, children }) => {
@@ -26,7 +31,8 @@ const FilterButton: React.FC<{ value: any; current: any; onClick: (value: any) =
     );
 };
 
-export const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, propertyCount, weather, weatherLoading, weatherError, location }) => {
+export const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, propertyCount, weather, weatherLoading, weatherError, location, onApplyFilters, loading, onSaveSettings, onLoadSettings, savedSettingsExist }) => {
+    const [saveButtonText, setSaveButtonText] = React.useState('Save Settings');
 
     const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFilters(prev => ({ ...prev, price: { ...prev.price, [e.target.name]: Number(e.target.value) } }));
@@ -43,6 +49,14 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, p
     const handlePropertyTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         setFilters(prev => ({...prev, propertyType: e.target.value as PropertyType | 'any'}));
     }
+
+    const handleSaveClick = () => {
+        onSaveSettings();
+        setSaveButtonText('Saved!');
+        setTimeout(() => {
+            setSaveButtonText('Save Settings');
+        }, 2000);
+    };
 
     return (
         <div className="space-y-6">
@@ -98,6 +112,48 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, p
                     ))}
                 </select>
             </div>
+            
+            <div>
+                 <label htmlFor="rentToOwn-toggle" className="flex items-center justify-between cursor-pointer">
+                    <span className="text-sm font-medium text-gray-400">Rent to Own Only</span>
+                    <div className="relative">
+                        <input 
+                            type="checkbox" 
+                            id="rentToOwn-toggle" 
+                            className="sr-only peer"
+                            checked={filters.rentToOwn}
+                            onChange={(e) => setFilters(prev => ({...prev, rentToOwn: e.target.checked}))}
+                        />
+                        <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-brand-primary peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-primary"></div>
+                    </div>
+                </label>
+            </div>
+             
+            <div className="flex space-x-2">
+                <button
+                    onClick={handleSaveClick}
+                    className="w-1/2 bg-brand-secondary text-brand-text font-semibold py-2 px-4 rounded-lg border border-gray-600 hover:border-brand-primary transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                    aria-label="Save current filter and location settings"
+                >
+                    {saveButtonText}
+                </button>
+                <button
+                    onClick={onLoadSettings}
+                    disabled={!savedSettingsExist}
+                    className="w-1/2 bg-brand-secondary text-brand-text font-semibold py-2 px-4 rounded-lg border border-gray-600 hover:border-brand-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:border-gray-700 disabled:text-gray-500"
+                    aria-label="Load saved filter and location settings"
+                >
+                    Load Settings
+                </button>
+            </div>
+
+            <button
+                onClick={onApplyFilters}
+                className="w-full bg-brand-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-opacity-80 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-opacity-50 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                disabled={loading}
+            >
+                {loading ? 'Applying...' : 'Apply Filters'}
+            </button>
             
             <div className="pt-4 border-t border-gray-700">
                 <p className="text-brand-text font-bold">{propertyCount} results found</p>

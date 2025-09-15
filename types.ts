@@ -13,6 +13,13 @@ export interface Property {
   imageUrl: string;
   lat: number;
   lng: number;
+  isRentToOwn?: boolean;
+  privateSchools?: School[];
+}
+
+export interface School {
+  name: string;
+  distance: string;
 }
 
 export enum PropertyType {
@@ -27,6 +34,7 @@ export interface Filters {
     bedrooms: number | 'any';
     bathrooms: number | 'any';
     propertyType: PropertyType | 'any';
+    rentToOwn: boolean;
 }
 
 export interface Weather {

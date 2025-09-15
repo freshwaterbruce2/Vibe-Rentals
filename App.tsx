@@ -1,25 +1,19 @@
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Property, Filters, Weather } from './types';
 import { generateRentalListings, getWeatherInfo } from './services/geminiService';
 import { Header } from './components/Header';
 import { FilterPanel } from './components/FilterPanel';
 import { PropertyList } from './components/PropertyList';
 import { MapPlaceholder } from './components/MapPlaceholder';
+import { PropertyDetailModal } from './components/PropertyDetailModal';
 
-const useDebounce = <T,>(value: T, delay: number): T => {
-    const [debouncedValue, setDebouncedValue] = useState<T>(value);
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value);
-        }, delay);
-        return () => {
-            clearTimeout(handler);
-        };
-    }, [value, delay]);
-    return debouncedValue;
+const initialFilters: Filters = {
+    price: { min: 500, max: 10000 },
+    bedrooms: 'any',
+    bathrooms: 'any',
+    propertyType: 'any',
+    rentToOwn: false,
 };
-
 
 const App: React.FC = () => {
     const [allProperties, setAllProperties] = useState<Property[]>([]);
@@ -28,9 +22,9 @@ const App: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     
     // The value in the search input
-    const [location, setLocation] = useState<string>('San Francisco, CA');
+    const [location, setLocation] = useState<string>('Nashville, TN');
     // The location that has been explicitly submitted for search
-    const [searchedLocation, setSearchedLocation] = useState<string>('San Francisco, CA');
+    const [searchedLocation, setSearchedLocation] = useState<string>('Nashville, TN');
 
     const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
     
@@ -38,73 +32,132 @@ const App: React.FC = () => {
     const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
     const [weatherError, setWeatherError] = useState<string | null>(null);
 
-
-    const [filters, setFilters] = useState<Filters>({
-        price: { min: 500, max: 10000 },
-        bedrooms: 'any',
-        bathrooms: 'any',
-        propertyType: 'any',
-    });
+    // Current state of filters as user interacts with them
+    const [filters, setFilters] = useState<Filters>(initialFilters);
+    // The filters that have been submitted for a search
+    const [appliedFilters, setAppliedFilters] = useState<Filters>(initialFilters);
     
     const [sortBy, setSortBy] = useState<string>('price_asc');
+    
+    const [savedSettingsExist, setSavedSettingsExist] = useState<boolean>(false);
 
-    // Debounce filter changes to avoid making API calls on every little change.
-    const debouncedFilters = useDebounce(filters, 500);
+    // In-memory cache to store results and avoid redundant API calls
+    const listingsCache = useRef<Record<string, { properties: Property[]; sources: any[] }>>({});
+    const weatherCache = useRef<Record<string, Weather>>({});
 
-    // This effect handles all data fetching, re-running when the location or filters change.
+    // Effect to check for saved settings on initial load
     useEffect(() => {
-        const fetchData = async () => {
+        try {
+            const saved = localStorage.getItem('rentScoutSettings');
+            setSavedSettingsExist(!!saved);
+        } catch (error) {
+            console.error("Could not access localStorage:", error);
+            setSavedSettingsExist(false);
+        }
+    }, []);
+
+    // Effect for fetching rental listings. Runs on initial load and when location or applied filters change.
+    useEffect(() => {
+        const fetchListings = async () => {
+            const cacheKey = `${searchedLocation}-${JSON.stringify(appliedFilters)}`;
+            if (listingsCache.current[cacheKey]) {
+                const cachedData = listingsCache.current[cacheKey];
+                setAllProperties(cachedData.properties);
+                setSources(cachedData.sources);
+                return; // Use cached data
+            }
+
             setLoading(true);
-            setWeatherLoading(true);
             setError(null);
-            setWeatherError(null);
             setSelectedPropertyId(null);
-            setAllProperties([]); // Clear previous results immediately for better UX
+            setAllProperties([]); // Clear previous results immediately
             setSources([]);
+
+            try {
+                const listingsResult = await generateRentalListings(searchedLocation, appliedFilters);
+                listingsCache.current[cacheKey] = listingsResult; // Store result in cache
+                setAllProperties(listingsResult.properties);
+                setSources(listingsResult.sources);
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+                setError(`Failed to load properties. ${errorMessage}`);
+                setAllProperties([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        fetchListings();
+        
+    }, [searchedLocation, appliedFilters]);
+
+    // Effect for fetching weather. Runs only when the searched location changes.
+    useEffect(() => {
+        const fetchWeather = async () => {
+            if (!searchedLocation) return;
+            
+            const cacheKey = searchedLocation;
+            if (weatherCache.current[cacheKey]) {
+                setWeather(weatherCache.current[cacheKey]);
+                return; // Use cached data
+            }
+
+            setWeatherLoading(true);
+            setWeatherError(null);
             setWeather(null);
 
             try {
-                const [listingsResult, weatherResult] = await Promise.allSettled([
-                    generateRentalListings(searchedLocation, debouncedFilters),
-                    getWeatherInfo(searchedLocation)
-                ]);
-
-                if (listingsResult.status === 'fulfilled') {
-                    setAllProperties(listingsResult.value.properties);
-                    setSources(listingsResult.value.sources);
-                } else {
-                    const errorMessage = listingsResult.reason instanceof Error ? listingsResult.reason.message : 'An unknown error occurred.';
-                    setError(`Failed to load properties. ${errorMessage}`);
-                    setAllProperties([]);
-                }
-
-                if (weatherResult.status === 'fulfilled') {
-                    setWeather(weatherResult.value);
-                } else {
-                    setWeatherError('Weather data could not be loaded.');
-                }
-
+                const weatherResult = await getWeatherInfo(searchedLocation);
+                weatherCache.current[cacheKey] = weatherResult; // Store result in cache
+                setWeather(weatherResult);
             } catch (err) {
-                setError('An unexpected error occurred while fetching data.');
-                setWeatherError('An unexpected error occurred.');
+                 setWeatherError('Weather data could not be loaded.');
             } finally {
-                setLoading(false);
                 setWeatherLoading(false);
             }
-        }
-        
-        fetchData();
-        
-    }, [searchedLocation, debouncedFilters]); // Re-run effect when searched location or debounced filters change
+        };
+
+        fetchWeather();
+    }, [searchedLocation]);
 
 
     const handleSearch = () => {
+       setAppliedFilters(filters);
        setSearchedLocation(location);
     };
     
-    const handleSuggestionSelect = (newLocation: string) => {
-        setLocation(newLocation);
-        setSearchedLocation(newLocation);
+    const handleSaveSettings = () => {
+        try {
+            const settings = {
+                location: location,
+                filters: filters
+            };
+            localStorage.setItem('rentScoutSettings', JSON.stringify(settings));
+            setSavedSettingsExist(true);
+        } catch (error) {
+            console.error("Could not save settings to localStorage:", error);
+            // Optionally: show an error message to the user
+        }
+    };
+
+    const handleLoadSettings = () => {
+        try {
+            const saved = localStorage.getItem('rentScoutSettings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                if (settings.location && settings.filters) {
+                    // Update the UI controls
+                    setLocation(settings.location);
+                    setFilters(settings.filters);
+                    // Immediately apply the loaded settings and trigger a new search
+                    setSearchedLocation(settings.location);
+                    setAppliedFilters(settings.filters);
+                }
+            }
+        } catch (error) {
+            console.error("Could not load or parse settings from localStorage:", error);
+             // Optionally: show an error message to the user
+        }
     };
 
     const sortedProperties = useMemo(() => {
@@ -123,13 +176,17 @@ const App: React.FC = () => {
         return sorted;
     }, [allProperties, sortBy]);
 
+    const selectedProperty = useMemo(() => {
+        return allProperties.find(p => p.id === selectedPropertyId) || null;
+    }, [selectedPropertyId, allProperties]);
+
     return (
         <div className="h-screen w-screen bg-brand-background text-brand-text flex flex-col overflow-hidden">
             <Header 
                 location={location} 
                 setLocation={setLocation} 
                 onSearch={handleSearch} 
-                onSuggestionSelect={handleSuggestionSelect}
+                loading={loading}
             />
             <main className="flex-grow flex flex-col md:flex-row overflow-hidden">
                 {/* Left Column: Contains Filters and Property List */}
@@ -144,6 +201,11 @@ const App: React.FC = () => {
                             weatherLoading={weatherLoading}
                             weatherError={weatherError}
                             location={searchedLocation}
+                            onApplyFilters={handleSearch}
+                            loading={loading}
+                            onSaveSettings={handleSaveSettings}
+                            onLoadSettings={handleLoadSettings}
+                            savedSettingsExist={savedSettingsExist}
                         />
                     </aside>
                     {/* Property List Panel */}
@@ -169,6 +231,11 @@ const App: React.FC = () => {
                     />
                 </aside>
             </main>
+            
+            <PropertyDetailModal 
+                property={selectedProperty}
+                onClose={() => setSelectedPropertyId(null)}
+            />
         </div>
     );
 };
