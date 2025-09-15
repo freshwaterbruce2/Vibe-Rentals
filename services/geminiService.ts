@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Property, Weather } from '../types';
+import { Property, Weather, Filters } from '../types';
 
 const API_KEY = process.env.API_KEY;
 
@@ -14,9 +14,29 @@ export interface RentalListingsResponse {
     sources: any[];
 }
 
-export const generateRentalListings = async (location: string): Promise<RentalListingsResponse> => {
+export const generateRentalListings = async (location: string, filters: Filters): Promise<RentalListingsResponse> => {
     try {
-        const prompt = `Search the web extensively to find a diverse and realistic list of 15 rental property listings in ${location}. Look for properties from various sources like real estate websites, apartment complex sites, and local classifieds to ensure a wide range of options. Format the response as a valid JSON array of objects. Each object must conform to this TypeScript interface:
+        let prompt = `Search the web extensively to find a diverse and realistic list of up to 15 rental property listings in ${location}.`;
+
+        const hasFilters = filters.price.max < 10000 || filters.bedrooms !== 'any' || filters.bathrooms !== 'any' || filters.propertyType !== 'any';
+
+        if (hasFilters) {
+            prompt += `\nThe listings must strictly match all of the following criteria:`;
+            if (filters.price.max < 10000) {
+                prompt += `\n- Price: Between $${filters.price.min} and $${filters.price.max} per month.`;
+            }
+            if (filters.bedrooms !== 'any') {
+                prompt += `\n- Bedrooms: ${filters.bedrooms} or more.`;
+            }
+            if (filters.bathrooms !== 'any') {
+                prompt += `\n- Bathrooms: ${filters.bathrooms} or more.`;
+            }
+            if (filters.propertyType !== 'any') {
+                prompt += `\n- Property Type: Must be a '${filters.propertyType}'.`;
+            }
+        }
+
+        prompt += `\n\nLook for properties from various sources like real estate websites, apartment complex sites, and local classifieds to ensure a wide range of options. Format the response as a valid JSON array of objects. Each object must conform to this TypeScript interface:
 interface Property {
   id: string; // A unique identifier
   address: string;

@@ -1,17 +1,37 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Property, Filters, PropertyType, Weather } from './types';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { Property, Filters, Weather } from './types';
 import { generateRentalListings, getWeatherInfo } from './services/geminiService';
 import { Header } from './components/Header';
 import { FilterPanel } from './components/FilterPanel';
 import { PropertyList } from './components/PropertyList';
 import { MapPlaceholder } from './components/MapPlaceholder';
 
+const useDebounce = <T,>(value: T, delay: number): T => {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+    return debouncedValue;
+};
+
+
 const App: React.FC = () => {
     const [allProperties, setAllProperties] = useState<Property[]>([]);
     const [sources, setSources] = useState<any[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    
+    // The value in the search input
     const [location, setLocation] = useState<string>('San Francisco, CA');
+    // The location that has been explicitly submitted for search
+    const [searchedLocation, setSearchedLocation] = useState<string>('San Francisco, CA');
+
     const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
     
     const [weather, setWeather] = useState<Weather | null>(null);
@@ -25,74 +45,83 @@ const App: React.FC = () => {
         bathrooms: 'any',
         propertyType: 'any',
     });
+    
+    const [sortBy, setSortBy] = useState<string>('price_asc');
 
-    const fetchDataForLocation = useCallback(async (searchLocation: string) => {
-        setLoading(true);
-        setWeatherLoading(true);
-        setError(null);
-        setWeatherError(null);
-        setSelectedPropertyId(null);
-        setAllProperties([]);
-        setSources([]);
-        setWeather(null);
+    // Debounce filter changes to avoid making API calls on every little change.
+    const debouncedFilters = useDebounce(filters, 500);
 
-        try {
-            const [listingsResult, weatherResult] = await Promise.allSettled([
-                generateRentalListings(searchLocation),
-                getWeatherInfo(searchLocation)
-            ]);
-
-            if (listingsResult.status === 'fulfilled') {
-                setAllProperties(listingsResult.value.properties);
-                setSources(listingsResult.value.sources);
-            } else {
-                const errorMessage = listingsResult.reason instanceof Error ? listingsResult.reason.message : 'An unknown error occurred.';
-                setError(`Failed to load properties. ${errorMessage}`);
-                setAllProperties([]);
-            }
-
-            if (weatherResult.status === 'fulfilled') {
-                setWeather(weatherResult.value);
-            } else {
-                setWeatherError('Weather data could not be loaded.');
-            }
-
-        } catch (err) {
-            setError('An unexpected error occurred while fetching data.');
-            setWeatherError('An unexpected error occurred.');
-        } finally {
-            setLoading(false);
-            setWeatherLoading(false);
-        }
-    }, []);
-
+    // This effect handles all data fetching, re-running when the location or filters change.
     useEffect(() => {
-        fetchDataForLocation('San Francisco, CA');
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        const fetchData = async () => {
+            setLoading(true);
+            setWeatherLoading(true);
+            setError(null);
+            setWeatherError(null);
+            setSelectedPropertyId(null);
+            setAllProperties([]); // Clear previous results immediately for better UX
+            setSources([]);
+            setWeather(null);
+
+            try {
+                const [listingsResult, weatherResult] = await Promise.allSettled([
+                    generateRentalListings(searchedLocation, debouncedFilters),
+                    getWeatherInfo(searchedLocation)
+                ]);
+
+                if (listingsResult.status === 'fulfilled') {
+                    setAllProperties(listingsResult.value.properties);
+                    setSources(listingsResult.value.sources);
+                } else {
+                    const errorMessage = listingsResult.reason instanceof Error ? listingsResult.reason.message : 'An unknown error occurred.';
+                    setError(`Failed to load properties. ${errorMessage}`);
+                    setAllProperties([]);
+                }
+
+                if (weatherResult.status === 'fulfilled') {
+                    setWeather(weatherResult.value);
+                } else {
+                    setWeatherError('Weather data could not be loaded.');
+                }
+
+            } catch (err) {
+                setError('An unexpected error occurred while fetching data.');
+                setWeatherError('An unexpected error occurred.');
+            } finally {
+                setLoading(false);
+                setWeatherLoading(false);
+            }
+        }
+        
+        fetchData();
+        
+    }, [searchedLocation, debouncedFilters]); // Re-run effect when searched location or debounced filters change
+
 
     const handleSearch = () => {
-        if(location) {
-           fetchDataForLocation(location);
-        }
+       setSearchedLocation(location);
     };
     
     const handleSuggestionSelect = (newLocation: string) => {
         setLocation(newLocation);
-        fetchDataForLocation(newLocation);
+        setSearchedLocation(newLocation);
     };
 
-    const filteredProperties = useMemo(() => {
-        return allProperties.filter(property => {
-            const { price, bedrooms, bathrooms, propertyType } = filters;
-            return (
-                property.price <= price.max &&
-                (bedrooms === 'any' || property.bedrooms >= bedrooms) &&
-                (bathrooms === 'any' || property.bathrooms >= bathrooms) &&
-                (propertyType === 'any' || property.propertyType === propertyType)
-            );
-        });
-    }, [allProperties, filters]);
+    const sortedProperties = useMemo(() => {
+        const sorted = [...allProperties];
+        switch (sortBy) {
+            case 'price_asc':
+                sorted.sort((a, b) => a.price - b.price);
+                break;
+            case 'price_desc':
+                sorted.sort((a, b) => b.price - a.price);
+                break;
+            case 'sqft_desc':
+                 sorted.sort((a, b) => b.sqft - a.sqft);
+                break;
+        }
+        return sorted;
+    }, [allProperties, sortBy]);
 
     return (
         <div className="h-screen w-screen bg-brand-background text-brand-text flex flex-col overflow-hidden">
@@ -103,36 +132,42 @@ const App: React.FC = () => {
                 onSuggestionSelect={handleSuggestionSelect}
             />
             <main className="flex-grow flex flex-col md:flex-row overflow-hidden">
-                <div className="w-full md:w-2/3 lg:w-3/4 flex flex-col">
-                    <div className="w-full md:w-1/3 lg:w-1/4 p-4 space-y-6 bg-brand-secondary overflow-y-auto fixed left-0 top-[68px] h-[calc(100vh-68px)] md:relative md:top-0 md:h-auto">
-                        <FilterPanel 
+                {/* Left Column: Contains Filters and Property List */}
+                <div className="w-full md:w-2/3 lg:w-3/4 flex flex-col md:flex-row overflow-hidden">
+                    {/* Filters Panel */}
+                    <aside className="w-full md:w-1/3 lg:w-1/4 p-4 bg-brand-secondary overflow-y-auto flex-shrink-0 h-auto md:h-[calc(100vh-68px)]">
+                         <FilterPanel 
                             filters={filters} 
                             setFilters={setFilters}
-                            propertyCount={filteredProperties.length}
+                            propertyCount={allProperties.length}
                             weather={weather}
                             weatherLoading={weatherLoading}
                             weatherError={weatherError}
-                            location={location}
+                            location={searchedLocation}
                         />
-                    </div>
-                    <div className="flex-grow overflow-y-auto md:ml-[33.333333%] lg:ml-[25%]">
+                    </aside>
+                    {/* Property List Panel */}
+                    <div className="flex-grow overflow-y-auto h-auto md:h-[calc(100vh-68px)]">
                         <PropertyList 
-                            properties={filteredProperties} 
+                            properties={sortedProperties} 
                             loading={loading} 
                             error={error}
                             selectedPropertyId={selectedPropertyId}
                             setSelectedPropertyId={setSelectedPropertyId}
                             sources={sources}
+                            sortBy={sortBy}
+                            setSortBy={setSortBy}
                         />
                     </div>
                 </div>
-                <div className="hidden md:block md:w-1/3 lg:w-3/4 h-full fixed right-0 top-[68px]">
+                {/* Right Column: Map */}
+                <aside className="hidden md:block md:w-1/3 lg:w-1/4 h-[calc(100vh-68px)] flex-shrink-0">
                    <MapPlaceholder 
-                        properties={filteredProperties} 
+                        properties={allProperties} 
                         selectedPropertyId={selectedPropertyId}
                         onSelectProperty={setSelectedPropertyId}
                     />
-                </div>
+                </aside>
             </main>
         </div>
     );

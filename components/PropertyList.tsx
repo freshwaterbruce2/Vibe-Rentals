@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Property } from '../types';
 import { PropertyCard } from './PropertyCard';
@@ -10,9 +11,11 @@ interface PropertyListProps {
     selectedPropertyId: string | null;
     setSelectedPropertyId: (id: string | null) => void;
     sources: any[];
+    sortBy: string;
+    setSortBy: (value: string) => void;
 }
 
-export const PropertyList: React.FC<PropertyListProps> = ({ properties, loading, error, selectedPropertyId, setSelectedPropertyId, sources }) => {
+export const PropertyList: React.FC<PropertyListProps> = ({ properties, loading, error, selectedPropertyId, setSelectedPropertyId, sources, sortBy, setSortBy }) => {
     
     if (error) {
         return <div className="p-4 text-red-400 text-center">{error}</div>;
@@ -32,6 +35,19 @@ export const PropertyList: React.FC<PropertyListProps> = ({ properties, loading,
 
     return (
         <div className="p-4">
+            <div className="mb-4 flex justify-end items-center">
+                 <label htmlFor="sort-by" className="text-sm text-gray-400 mr-2">Sort by:</label>
+                 <select
+                    id="sort-by"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="bg-brand-secondary border border-gray-600 text-brand-text rounded-md p-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary"
+                >
+                    <option value="price_asc">Price: Low to High</option>
+                    <option value="price_desc">Price: High to Low</option>
+                    <option value="sqft_desc">Sqft: High to Low</option>
+                 </select>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                 {properties.map(property => (
                     <PropertyCard 
