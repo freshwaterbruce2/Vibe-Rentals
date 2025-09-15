@@ -26,7 +26,7 @@ const App: React.FC = () => {
         propertyType: 'any',
     });
 
-    const fetchProperties = useCallback(async () => {
+    const fetchDataForLocation = useCallback(async (searchLocation: string) => {
         setLoading(true);
         setWeatherLoading(true);
         setError(null);
@@ -38,8 +38,8 @@ const App: React.FC = () => {
 
         try {
             const [listingsResult, weatherResult] = await Promise.allSettled([
-                generateRentalListings(location),
-                getWeatherInfo(location)
+                generateRentalListings(searchLocation),
+                getWeatherInfo(searchLocation)
             ]);
 
             if (listingsResult.status === 'fulfilled') {
@@ -64,12 +64,23 @@ const App: React.FC = () => {
             setLoading(false);
             setWeatherLoading(false);
         }
-    }, [location]);
+    }, []);
 
     useEffect(() => {
-        fetchProperties();
+        fetchDataForLocation('San Francisco, CA');
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    const handleSearch = () => {
+        if(location) {
+           fetchDataForLocation(location);
+        }
+    };
+    
+    const handleSuggestionSelect = (newLocation: string) => {
+        setLocation(newLocation);
+        fetchDataForLocation(newLocation);
+    };
 
     const filteredProperties = useMemo(() => {
         return allProperties.filter(property => {
@@ -85,7 +96,12 @@ const App: React.FC = () => {
 
     return (
         <div className="h-screen w-screen bg-brand-background text-brand-text flex flex-col overflow-hidden">
-            <Header location={location} setLocation={setLocation} onSearch={fetchProperties} />
+            <Header 
+                location={location} 
+                setLocation={setLocation} 
+                onSearch={handleSearch} 
+                onSuggestionSelect={handleSuggestionSelect}
+            />
             <main className="flex-grow flex flex-col md:flex-row overflow-hidden">
                 <div className="w-full md:w-2/3 lg:w-3/4 flex flex-col">
                     <div className="w-full md:w-1/3 lg:w-1/4 p-4 space-y-6 bg-brand-secondary overflow-y-auto fixed left-0 top-[68px] h-[calc(100vh-68px)] md:relative md:top-0 md:h-auto">

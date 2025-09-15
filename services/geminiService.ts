@@ -16,7 +16,7 @@ export interface RentalListingsResponse {
 
 export const generateRentalListings = async (location: string): Promise<RentalListingsResponse> => {
     try {
-        const prompt = `Based on publicly available information, generate a realistic list of 15 rental property listings in ${location}. Format the response as a valid JSON array of objects. Each object must conform to this TypeScript interface:
+        const prompt = `Search the web extensively to find a diverse and realistic list of 15 rental property listings in ${location}. Look for properties from various sources like real estate websites, apartment complex sites, and local classifieds to ensure a wide range of options. Format the response as a valid JSON array of objects. Each object must conform to this TypeScript interface:
 interface Property {
   id: string; // A unique identifier
   address: string;
@@ -95,5 +95,42 @@ export const getWeatherInfo = async (location: string): Promise<Weather> => {
     } catch (error) {
         console.error(`Error fetching weather for ${location}:`, error);
         throw new Error("Failed to fetch weather information.");
+    }
+};
+
+const suggestionsSchema = {
+    type: Type.OBJECT,
+    properties: {
+        suggestions: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.STRING,
+                description: "A location suggestion, e.g., 'San Francisco, CA, USA'"
+            }
+        }
+    },
+    required: ["suggestions"]
+};
+
+export const getLocationSuggestions = async (query: string): Promise<string[]> => {
+    if (!query.trim()) {
+        return [];
+    }
+    try {
+        const prompt = `Provide up to 5 city name suggestions for the partial input "${query}". The suggestions should be in the format 'City, State' or 'City, Country'.`;
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: suggestionsSchema,
+            },
+        });
+        const jsonText = response.text.trim();
+        const result = JSON.parse(jsonText) as { suggestions: string[] };
+        return result.suggestions || [];
+    } catch (error) {
+        console.error("Error fetching location suggestions:", error);
+        return [];
     }
 };
