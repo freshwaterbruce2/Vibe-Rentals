@@ -1,6 +1,7 @@
 import React from 'react';
 import { Filters, PropertyType, Weather } from '../types';
 import { WeatherWidget } from './WeatherWidget';
+import { HeartIcon } from './icons/HeartIcon';
 
 interface FilterPanelProps {
     filters: Filters;
@@ -15,6 +16,9 @@ interface FilterPanelProps {
     onSaveSettings: () => void;
     onLoadSettings: () => void;
     savedSettingsExist: boolean;
+    showFavoritesOnly: boolean;
+    setShowFavoritesOnly: (value: boolean) => void;
+    hasFavorites: boolean;
 }
 
 const FilterButton: React.FC<{ value: any; current: any; onClick: (value: any) => void; children: React.ReactNode }> = ({ value, current, onClick, children }) => {
@@ -31,7 +35,11 @@ const FilterButton: React.FC<{ value: any; current: any; onClick: (value: any) =
     );
 };
 
-export const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, propertyCount, weather, weatherLoading, weatherError, location, onApplyFilters, loading, onSaveSettings, onLoadSettings, savedSettingsExist }) => {
+export const FilterPanel: React.FC<FilterPanelProps> = ({ 
+    filters, setFilters, propertyCount, weather, weatherLoading, weatherError, location, 
+    onApplyFilters, loading, onSaveSettings, onLoadSettings, savedSettingsExist,
+    showFavoritesOnly, setShowFavoritesOnly, hasFavorites
+}) => {
     const [saveButtonText, setSaveButtonText] = React.useState('Save Settings');
 
     const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,6 +75,27 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, p
                 location={location}
             />
             <h2 className="text-xl font-bold text-brand-text">Filters</h2>
+
+            {hasFavorites && (
+                 <div>
+                     <label htmlFor="favorites-toggle" className="flex items-center justify-between cursor-pointer p-3 bg-brand-background rounded-lg">
+                        <span className="flex items-center text-sm font-medium text-brand-primary">
+                             <HeartIcon className="w-5 h-5 mr-2" filled={showFavoritesOnly} />
+                             Show Favorites Only
+                        </span>
+                        <div className="relative">
+                            <input 
+                                type="checkbox" 
+                                id="favorites-toggle" 
+                                className="sr-only peer"
+                                checked={showFavoritesOnly}
+                                onChange={(e) => setShowFavoritesOnly(e.target.checked)}
+                            />
+                            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-brand-primary peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-primary"></div>
+                        </div>
+                    </label>
+                </div>
+            )}
             
             <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">Price Range</label>

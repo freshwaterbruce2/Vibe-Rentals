@@ -1,16 +1,21 @@
-
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Property } from '../types';
-import { LocationMarkerIcon } from './icons/LocationMarkerIcon';
+import { CompassIcon } from './icons/CompassIcon';
+import { PropertyMarker } from './PropertyMarker';
+import { ClusterMarker } from './ClusterMarker';
 
 interface MapPlaceholderProps {
     properties: Property[];
     selectedPropertyId: string | null;
     onSelectProperty: (id: string | null) => void;
+    hoveredPropertyId: string | null;
+    setHoveredPropertyId: (id: string | null) => void;
+    onClusterClick: (propertyIds: string[]) => void;
 }
 
-// Function to normalize coordinates to a 0-1 range
-const normalizeCoords = (properties: Property[]): { lat: number; lng: number }[] => {
+const CLUSTER_RADIUS = 0.07; 
+
+const normalizeCoords = (properties: Property[]): { id: string; lat: number; lng: number }[] => {
     if (properties.length === 0) return [];
 
     const lats = properties.map(p => p.lat);
@@ -25,71 +30,113 @@ const normalizeCoords = (properties: Property[]): { lat: number; lng: number }[]
     const lngRange = maxLng - minLng || 1;
 
     return properties.map(p => ({
+        id: p.id,
         lat: (p.lat - minLat) / latRange,
         lng: (p.lng - minLng) / lngRange,
     }));
 };
 
-export const MapPlaceholder: React.FC<MapPlaceholderProps> = ({ properties, selectedPropertyId, onSelectProperty }) => {
-    const normalizedCoords = normalizeCoords(properties);
-    const [hoveredPropertyId, setHoveredPropertyId] = useState<string | null>(null);
+
+export const MapPlaceholder: React.FC<MapPlaceholderProps> = ({ properties, selectedPropertyId, onSelectProperty, hoveredPropertyId, setHoveredPropertyId, onClusterClick }) => {
+    const [mapHover, setMapHover] = useState<{ id: string; isCluster: boolean } | null>(null);
+    const normalizedCoords = useMemo(() => normalizeCoords(properties), [properties]);
+
+    const clusters = useMemo(() => {
+        const coordsWithProps = normalizedCoords.map(coord => ({
+            ...coord,
+            property: properties.find(p => p.id === coord.id)!
+        }));
+
+        const clusters: { properties: Property[], lat: number, lng: number }[] = [];
+        const processedIds = new Set<string>();
+
+        for (const point of coordsWithProps) {
+            if (processedIds.has(point.id)) continue;
+            
+            const neighbors = coordsWithProps.filter(neighbor => {
+                if (processedIds.has(neighbor.id)) return false;
+                const distance = Math.sqrt(Math.pow(point.lat - neighbor.lat, 2) + Math.pow(point.lng - neighbor.lng, 2));
+                return distance < CLUSTER_RADIUS;
+            });
+
+            if (neighbors.length > 0) {
+                 const clusterProperties = neighbors.map(n => n.property);
+                 const avgLat = neighbors.reduce((sum, n) => sum + n.lat, 0) / neighbors.length;
+                 const avgLng = neighbors.reduce((sum, n) => sum + n.lng, 0) / neighbors.length;
+                 
+                 clusters.push({ properties: clusterProperties, lat: avgLat, lng: avgLng });
+                 neighbors.forEach(n => processedIds.add(n.id));
+            }
+        }
+        return clusters;
+
+    }, [normalizedCoords, properties]);
+
+    const handlePropertyMouseEnter = (id: string) => {
+        setMapHover({ id, isCluster: false });
+        setHoveredPropertyId(id);
+    };
+
+    const handlePropertyMouseLeave = () => {
+        setMapHover(null);
+        setHoveredPropertyId(null);
+    };
     
+    const handleClusterMouseEnter = (id: string) => {
+        setMapHover({ id, isCluster: true });
+    };
+    
+    const handleClusterMouseLeave = () => {
+        setMapHover(null);
+    };
+
     return (
-        <div className="w-full h-full bg-gray-700 relative overflow-hidden">
-            <img 
-                src="https://picsum.photos/seed/map-background/2000/2000" 
-                alt="City map background" 
-                className="w-full h-full object-cover opacity-30"
-            />
+        <div className="w-full h-full bg-brand-background relative overflow-hidden">
+            <div className="absolute inset-0 bg-radial-gradient from-gray-800/30 to-transparent"></div>
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2040%2040%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22%23393E46%22%20fill-opacity%3D%220.4%22%20fill-rule%3D%22evenodd%22%3E%3Cpath%20d%3D%22M0%2040L40%200H20L0%2020M40%2040V20L20%2040%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E')] opacity-30"></div>
+            
             <div className="absolute inset-0 p-4">
-                {properties.map((property, index) => {
-                    const coords = normalizedCoords[index];
-                    const isSelected = property.id === selectedPropertyId;
+               {clusters.map((cluster, index) => {
+                    const clusterId = `cluster-${index}`;
+                    const isSelected = cluster.properties.some(p => p.id === selectedPropertyId);
 
-                    return (
-                        <div
+                    if (cluster.properties.length > 1) {
+                        return (
+                             <ClusterMarker
+                                key={clusterId}
+                                cluster={cluster}
+                                isSelected={isSelected}
+                                isHovered={mapHover?.id === clusterId}
+                                onMouseEnter={() => handleClusterMouseEnter(clusterId)}
+                                onMouseLeave={handleClusterMouseLeave}
+                                onClick={() => onClusterClick(cluster.properties.map(p => p.id))}
+                                style={{
+                                    left: `${cluster.lng * 95 + 2.5}%`,
+                                    top: `${(1 - cluster.lat) * 95 + 2.5}%`,
+                                }}
+                            />
+                        );
+                    }
+                    
+                    const property = cluster.properties[0];
+                     return (
+                         <PropertyMarker
                             key={property.id}
-                            className="absolute transform -translate-x-1/2 -translate-y-full"
-                            style={{ 
-                                left: `${coords.lng * 95 + 2.5}%`, // 95% width to keep markers inside
-                                top: `${(1 - coords.lat) * 95 + 2.5}%`, // Invert lat for top-down view
+                            property={property}
+                            isSelected={property.id === selectedPropertyId}
+                            isHovered={mapHover?.id === property.id || hoveredPropertyId === property.id}
+                            onSelect={onSelectProperty}
+                            onMouseEnter={() => handlePropertyMouseEnter(property.id)}
+                            onMouseLeave={handlePropertyMouseLeave}
+                            style={{
+                                left: `${cluster.lng * 95 + 2.5}%`,
+                                top: `${(1 - cluster.lat) * 95 + 2.5}%`,
                             }}
-                        >
-                            {/* Tooltip on hover */}
-                            {hoveredPropertyId === property.id && (
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-9 w-max max-w-[200px] bg-brand-background text-white text-xs rounded-md shadow-lg p-2 z-10 pointer-events-none">
-                                    <p className="font-bold truncate">{property.address}</p>
-                                    <p className="text-brand-primary font-semibold">${property.price.toLocaleString()}/mo</p>
-                                </div>
-                            )}
-
-                            <div 
-                                className="relative flex flex-col items-center cursor-pointer"
-                                onMouseEnter={() => setHoveredPropertyId(property.id)}
-                                onMouseLeave={() => setHoveredPropertyId(null)}
-                                onClick={() => onSelectProperty(isSelected ? null : property.id)}
-                            >
-                                {/* Pulsing ring for selected state */}
-                                {isSelected && (
-                                    <span className="absolute top-[28px] w-6 h-6 rounded-full bg-brand-primary opacity-75 animate-ping"></span>
-                                )}
-
-                                <div className={`relative z-[1] flex items-center justify-center p-1 rounded-full transition-colors duration-300 ${isSelected ? 'bg-brand-primary' : 'bg-brand-secondary'}`}>
-                                    <span className={`font-bold text-xs ${isSelected ? 'text-white' : 'text-brand-primary'}`}>
-                                        ${(property.price / 1000).toFixed(1)}k
-                                    </span>
-                                </div>
-                                <LocationMarkerIcon 
-                                    className={`relative z-[1] w-6 h-6 mx-auto transition-colors duration-300 ${isSelected ? 'text-brand-primary' : 'text-brand-secondary'}`}
-                                />
-                            </div>
-                        </div>
-                    );
-                })}
+                        />
+                     );
+               })}
             </div>
-             <div className="absolute bottom-4 left-4 bg-brand-secondary/80 text-brand-text p-2 rounded-md text-xs">
-                Map view is for demonstration purposes.
-            </div>
+             <CompassIcon className="absolute top-4 right-4 h-12 w-12 text-gray-500 opacity-75" />
         </div>
     );
 };

@@ -15,6 +15,13 @@ export interface Property {
   lng: number;
   isRentToOwn?: boolean;
   privateSchools?: School[];
+  contact?: Contact;
+}
+
+export interface Contact {
+  name?: string;
+  phone?: string;
+  email?: string;
 }
 
 export interface School {

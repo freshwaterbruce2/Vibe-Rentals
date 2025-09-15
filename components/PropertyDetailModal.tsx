@@ -5,13 +5,19 @@ import { BedIcon } from './icons/BedIcon';
 import { BathIcon } from './icons/BathIcon';
 import { SchoolIcon } from './icons/SchoolIcon';
 import { PropertyTypeIcon } from './icons/PropertyTypeIcon';
+import { SparkleIcon } from './icons/SparkleIcon';
+import { PhoneIcon } from './icons/PhoneIcon';
+import { MailIcon } from './icons/MailIcon';
+import { UserIcon } from './icons/UserIcon';
 
 interface PropertyDetailModalProps {
-    property: Property | null;
+    property: (Property & { isGeneratedOrEnhanced?: boolean }) | null;
     onClose: () => void;
+    enhancing: boolean;
+    onEnhanceImage: (propertyId: string) => void;
 }
 
-export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ property, onClose }) => {
+export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ property, onClose, enhancing, onEnhanceImage }) => {
     useEffect(() => {
         const handleEsc = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
@@ -26,6 +32,12 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
 
     if (!property) return null;
 
+    const handleEnhanceClick = () => {
+        if (property && !enhancing) {
+            onEnhanceImage(property.id);
+        }
+    };
+
     return (
         <div 
             className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4 transition-opacity duration-300"
@@ -38,8 +50,31 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
                 className="bg-brand-secondary rounded-lg overflow-hidden shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row animate-fade-in-up"
                 onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
             >
-                <div className="w-full md:w-1/2 flex-shrink-0">
+                <div className="w-full md:w-1/2 flex-shrink-0 relative">
+                    {enhancing && (
+                        <div className="absolute inset-0 bg-black bg-opacity-70 flex flex-col justify-center items-center z-20">
+                            <svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <p className="text-white text-lg mt-3">Enhancing Image...</p>
+                        </div>
+                    )}
                     <img className="w-full h-64 md:h-full object-cover" src={property.imageUrl} alt={`View of ${property.address}`} />
+                    {!property.isGeneratedOrEnhanced && (
+                        <span className="absolute bottom-2 right-2 bg-black bg-opacity-60 text-white text-xs font-semibold px-2 py-1 rounded">
+                            Placeholder Image
+                        </span>
+                    )}
+                     {property.isGeneratedOrEnhanced && !enhancing && (
+                        <button 
+                            onClick={handleEnhanceClick}
+                            className="absolute bottom-4 left-4 z-10 flex items-center space-x-2 px-4 py-2 bg-black bg-opacity-60 text-white font-semibold rounded-lg border border-gray-500 hover:bg-opacity-80 hover:border-brand-primary transition-all focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                        >
+                            <SparkleIcon className="w-5 h-5" />
+                            <span>Enhance Image</span>
+                        </button>
+                    )}
                 </div>
                 <div className="w-full md:w-1/2 p-6 flex flex-col overflow-y-auto">
                     <div className="flex justify-between items-start mb-4">
@@ -97,6 +132,32 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
                                     <li key={index} className="bg-brand-background text-brand-text text-sm px-3 py-1 rounded-full">{amenity}</li>
                                 ))}
                             </ul>
+                        </div>
+                    )}
+                    
+                    {property.contact && (
+                        <div className="my-4 pt-4 border-t border-gray-700">
+                             <h3 className="text-lg font-semibold text-gray-300 mb-2">Contact Information</h3>
+                             <div className="space-y-2">
+                                {property.contact.name && (
+                                    <p className="flex items-center text-brand-text">
+                                        <UserIcon className="w-5 h-5 mr-3 text-gray-400 flex-shrink-0" />
+                                        <span>{property.contact.name}</span>
+                                    </p>
+                                )}
+                                {property.contact.phone && (
+                                    <p className="flex items-center text-brand-text">
+                                        <PhoneIcon className="w-5 h-5 mr-3 text-gray-400 flex-shrink-0" />
+                                        <a href={`tel:${property.contact.phone}`} className="hover:text-brand-primary transition-colors">{property.contact.phone}</a>
+                                    </p>
+                                )}
+                                {property.contact.email && (
+                                     <p className="flex items-center text-brand-text">
+                                        <MailIcon className="w-5 h-5 mr-3 text-gray-400 flex-shrink-0" />
+                                        <a href={`mailto:${property.contact.email}`} className="hover:text-brand-primary transition-colors truncate">{property.contact.email}</a>
+                                    </p>
+                                )}
+                             </div>
                         </div>
                     )}
 

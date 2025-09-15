@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Property, Filters, Weather } from './types';
-import { generateRentalListings, getWeatherInfo } from './services/geminiService';
+import { generateRentalListings, getWeatherInfo, enhancePropertyImage } from './services/geminiService';
 import { Header } from './components/Header';
 import { FilterPanel } from './components/FilterPanel';
 import { PropertyList } from './components/PropertyList';
 import { MapPlaceholder } from './components/MapPlaceholder';
 import { PropertyDetailModal } from './components/PropertyDetailModal';
+import { MobileControls } from './components/MobileControls';
+import { FilterModal } from './components/FilterModal';
 
 const initialFilters: Filters = {
     price: { min: 500, max: 10000 },
@@ -21,42 +23,60 @@ const App: React.FC = () => {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     
-    // The value in the search input
     const [location, setLocation] = useState<string>('Nashville, TN');
-    // The location that has been explicitly submitted for search
     const [searchedLocation, setSearchedLocation] = useState<string>('Nashville, TN');
 
     const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+    const [hoveredPropertyId, setHoveredPropertyId] = useState<string | null>(null);
     
     const [weather, setWeather] = useState<Weather | null>(null);
     const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
     const [weatherError, setWeatherError] = useState<string | null>(null);
 
-    // Current state of filters as user interacts with them
     const [filters, setFilters] = useState<Filters>(initialFilters);
-    // The filters that have been submitted for a search
     const [appliedFilters, setAppliedFilters] = useState<Filters>(initialFilters);
     
     const [sortBy, setSortBy] = useState<string>('price_asc');
     
     const [savedSettingsExist, setSavedSettingsExist] = useState<boolean>(false);
+    const [favoritePropertyIds, setFavoritePropertyIds] = useState<Set<string>>(new Set());
+    const [showFavoritesOnly, setShowFavoritesOnly] = useState<boolean>(false);
 
-    // In-memory cache to store results and avoid redundant API calls
+    const [clusterFilterIds, setClusterFilterIds] = useState<string[] | null>(null);
+    const propertyCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    
+    const [imageCache, setImageCache] = useState<Record<string, string>>({});
+    const [enhancingPropertyId, setEnhancingPropertyId] = useState<string | null>(null);
+
+    // --- Mobile Specific State ---
+    const [mobileView, setMobileView] = useState<'list' | 'map'>('list');
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
+
     const listingsCache = useRef<Record<string, { properties: Property[]; sources: any[] }>>({});
     const weatherCache = useRef<Record<string, Weather>>({});
 
-    // Effect to check for saved settings on initial load
     useEffect(() => {
         try {
-            const saved = localStorage.getItem('rentScoutSettings');
-            setSavedSettingsExist(!!saved);
+            const savedSettings = localStorage.getItem('rentScoutSettings');
+            setSavedSettingsExist(!!savedSettings);
+            
+            const savedFavorites = localStorage.getItem('rentScoutFavorites');
+            if (savedFavorites) {
+                setFavoritePropertyIds(new Set(JSON.parse(savedFavorites)));
+            }
         } catch (error) {
             console.error("Could not access localStorage:", error);
-            setSavedSettingsExist(false);
         }
     }, []);
 
-    // Effect for fetching rental listings. Runs on initial load and when location or applied filters change.
+    useEffect(() => {
+        try {
+            localStorage.setItem('rentScoutFavorites', JSON.stringify(Array.from(favoritePropertyIds)));
+        } catch (error) {
+            console.error("Could not save favorites to localStorage:", error);
+        }
+    }, [favoritePropertyIds]);
+
     useEffect(() => {
         const fetchListings = async () => {
             const cacheKey = `${searchedLocation}-${JSON.stringify(appliedFilters)}`;
@@ -64,18 +84,19 @@ const App: React.FC = () => {
                 const cachedData = listingsCache.current[cacheKey];
                 setAllProperties(cachedData.properties);
                 setSources(cachedData.sources);
-                return; // Use cached data
+                return;
             }
 
             setLoading(true);
             setError(null);
             setSelectedPropertyId(null);
-            setAllProperties([]); // Clear previous results immediately
+            setAllProperties([]);
             setSources([]);
+            setClusterFilterIds(null); // Reset cluster view on new search
 
             try {
                 const listingsResult = await generateRentalListings(searchedLocation, appliedFilters);
-                listingsCache.current[cacheKey] = listingsResult; // Store result in cache
+                listingsCache.current[cacheKey] = listingsResult;
                 setAllProperties(listingsResult.properties);
                 setSources(listingsResult.sources);
             } catch (err) {
@@ -91,7 +112,6 @@ const App: React.FC = () => {
         
     }, [searchedLocation, appliedFilters]);
 
-    // Effect for fetching weather. Runs only when the searched location changes.
     useEffect(() => {
         const fetchWeather = async () => {
             if (!searchedLocation) return;
@@ -99,7 +119,7 @@ const App: React.FC = () => {
             const cacheKey = searchedLocation;
             if (weatherCache.current[cacheKey]) {
                 setWeather(weatherCache.current[cacheKey]);
-                return; // Use cached data
+                return;
             }
 
             setWeatherLoading(true);
@@ -108,7 +128,7 @@ const App: React.FC = () => {
 
             try {
                 const weatherResult = await getWeatherInfo(searchedLocation);
-                weatherCache.current[cacheKey] = weatherResult; // Store result in cache
+                weatherCache.current[cacheKey] = weatherResult;
                 setWeather(weatherResult);
             } catch (err) {
                  setWeatherError('Weather data could not be loaded.');
@@ -120,10 +140,22 @@ const App: React.FC = () => {
         fetchWeather();
     }, [searchedLocation]);
 
+    // Effect to scroll the property card into view when selected from the map
+    useEffect(() => {
+        if (selectedPropertyId && mobileView === 'list') {
+            const cardRef = propertyCardRefs.current[selectedPropertyId];
+            cardRef?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [selectedPropertyId, mobileView]);
 
     const handleSearch = () => {
        setAppliedFilters(filters);
        setSearchedLocation(location);
+    };
+
+    const handleApplyFiltersFromModal = () => {
+        handleSearch();
+        setIsFilterModalOpen(false);
     };
     
     const handleSaveSettings = () => {
@@ -136,7 +168,6 @@ const App: React.FC = () => {
             setSavedSettingsExist(true);
         } catch (error) {
             console.error("Could not save settings to localStorage:", error);
-            // Optionally: show an error message to the user
         }
     };
 
@@ -146,22 +177,86 @@ const App: React.FC = () => {
             if (saved) {
                 const settings = JSON.parse(saved);
                 if (settings.location && settings.filters) {
-                    // Update the UI controls
                     setLocation(settings.location);
                     setFilters(settings.filters);
-                    // Immediately apply the loaded settings and trigger a new search
+                    // Automatically apply loaded settings
                     setSearchedLocation(settings.location);
                     setAppliedFilters(settings.filters);
                 }
             }
         } catch (error) {
             console.error("Could not load or parse settings from localStorage:", error);
-             // Optionally: show an error message to the user
+        }
+    };
+    
+     const handleToggleFavorite = (propertyId: string) => {
+        setFavoritePropertyIds(prev => {
+            const newFavorites = new Set(prev);
+            if (newFavorites.has(propertyId)) {
+                newFavorites.delete(propertyId);
+            } else {
+                newFavorites.add(propertyId);
+            }
+            return newFavorites;
+        });
+    };
+    
+    const handleClusterClick = (propertyIds: string[]) => {
+        setClusterFilterIds(propertyIds);
+        setSelectedPropertyId(null); // Deselect any property when zooming
+        setMobileView('list'); // Switch to list view on mobile to see the filtered results
+    };
+
+    const handleClearClusterFilter = () => {
+        setClusterFilterIds(null);
+    };
+    
+    const handleSelectPropertyFromMap = (id: string | null) => {
+        setSelectedPropertyId(id);
+        if(id) {
+            setMobileView('list');
+        }
+    };
+    
+    const handleImageGenerated = (propertyId: string, imageUrl: string) => {
+        setImageCache(prevCache => ({
+            ...prevCache,
+            [propertyId]: imageUrl,
+        }));
+    };
+
+    const handleEnhanceImage = async (propertyId: string) => {
+        if (enhancingPropertyId || !imageCache[propertyId]) return;
+
+        setEnhancingPropertyId(propertyId);
+        try {
+            const currentImage = imageCache[propertyId];
+            const enhancedImage = await enhancePropertyImage(currentImage);
+            setImageCache(prevCache => ({
+                ...prevCache,
+                [propertyId]: enhancedImage,
+            }));
+        } catch (err) {
+            console.error("Failed to enhance image for property:", propertyId, err);
+            // Optionally, set an error state to show a toast message to the user.
+        } finally {
+            setEnhancingPropertyId(null);
         }
     };
 
-    const sortedProperties = useMemo(() => {
-        const sorted = [...allProperties];
+    const displayedProperties = useMemo(() => {
+        let propertiesToDisplay = allProperties;
+
+        if (showFavoritesOnly) {
+            propertiesToDisplay = propertiesToDisplay.filter(p => favoritePropertyIds.has(p.id));
+        }
+
+        if (clusterFilterIds) {
+            const clusterIdSet = new Set(clusterFilterIds);
+            propertiesToDisplay = propertiesToDisplay.filter(p => clusterIdSet.has(p.id));
+        }
+        
+        const sorted = [...propertiesToDisplay];
         switch (sortBy) {
             case 'price_asc':
                 sorted.sort((a, b) => a.price - b.price);
@@ -174,11 +269,40 @@ const App: React.FC = () => {
                 break;
         }
         return sorted;
-    }, [allProperties, sortBy]);
+    }, [allProperties, sortBy, clusterFilterIds, showFavoritesOnly, favoritePropertyIds]);
 
     const selectedProperty = useMemo(() => {
-        return allProperties.find(p => p.id === selectedPropertyId) || null;
-    }, [selectedPropertyId, allProperties]);
+        const foundProperty = allProperties.find(p => p.id === selectedPropertyId);
+        if (!foundProperty) return null;
+
+        const generatedImage = imageCache[foundProperty.id];
+        return { 
+            ...foundProperty, 
+            imageUrl: generatedImage || foundProperty.imageUrl,
+            isGeneratedOrEnhanced: !!generatedImage 
+        };
+    }, [selectedPropertyId, allProperties, imageCache]);
+
+
+    const filterPanelComponent = (
+        <FilterPanel 
+            filters={filters} 
+            setFilters={setFilters}
+            propertyCount={displayedProperties.length}
+            weather={weather}
+            weatherLoading={weatherLoading}
+            weatherError={weatherError}
+            location={searchedLocation}
+            onApplyFilters={isFilterModalOpen ? handleApplyFiltersFromModal : handleSearch}
+            loading={loading}
+            onSaveSettings={handleSaveSettings}
+            onLoadSettings={handleLoadSettings}
+            savedSettingsExist={savedSettingsExist}
+            showFavoritesOnly={showFavoritesOnly}
+            setShowFavoritesOnly={setShowFavoritesOnly}
+            hasFavorites={favoritePropertyIds.size > 0}
+        />
+    );
 
     return (
         <div className="h-screen w-screen bg-brand-background text-brand-text flex flex-col overflow-hidden">
@@ -189,29 +313,14 @@ const App: React.FC = () => {
                 loading={loading}
             />
             <main className="flex-grow flex flex-col md:flex-row overflow-hidden">
-                {/* Left Column: Contains Filters and Property List */}
-                <div className="w-full md:w-2/3 lg:w-3/4 flex flex-col md:flex-row overflow-hidden">
-                    {/* Filters Panel */}
-                    <aside className="w-full md:w-1/3 lg:w-1/4 p-4 bg-brand-secondary overflow-y-auto flex-shrink-0 h-auto md:h-[calc(100vh-68px)]">
-                         <FilterPanel 
-                            filters={filters} 
-                            setFilters={setFilters}
-                            propertyCount={allProperties.length}
-                            weather={weather}
-                            weatherLoading={weatherLoading}
-                            weatherError={weatherError}
-                            location={searchedLocation}
-                            onApplyFilters={handleSearch}
-                            loading={loading}
-                            onSaveSettings={handleSaveSettings}
-                            onLoadSettings={handleLoadSettings}
-                            savedSettingsExist={savedSettingsExist}
-                        />
+                {/* --- Desktop Layout --- */}
+                <div className="hidden md:flex w-full h-full">
+                    <aside className="w-1/3 lg:w-1/4 p-4 bg-brand-secondary overflow-y-auto flex-shrink-0 h-full">
+                        {filterPanelComponent}
                     </aside>
-                    {/* Property List Panel */}
-                    <div className="flex-grow overflow-y-auto h-auto md:h-[calc(100vh-68px)]">
+                    <div className="flex-grow overflow-y-auto h-full">
                         <PropertyList 
-                            properties={sortedProperties} 
+                            properties={displayedProperties} 
                             loading={loading} 
                             error={error}
                             selectedPropertyId={selectedPropertyId}
@@ -219,23 +328,91 @@ const App: React.FC = () => {
                             sources={sources}
                             sortBy={sortBy}
                             setSortBy={setSortBy}
+                            hoveredPropertyId={hoveredPropertyId}
+                            setHoveredPropertyId={setHoveredPropertyId}
+                            propertyCardRefs={propertyCardRefs}
+                            clusterFilterActive={!!clusterFilterIds}
+                            onClearClusterFilter={handleClearClusterFilter}
+                            favoritePropertyIds={favoritePropertyIds}
+                            onToggleFavorite={handleToggleFavorite}
+                            imageCache={imageCache}
+                            onImageGenerated={handleImageGenerated}
+                            enhancingPropertyId={enhancingPropertyId}
+                            onEnhanceImage={handleEnhanceImage}
                         />
                     </div>
+                    <aside className="w-1/3 lg:w-1/4 h-full flex-shrink-0">
+                        <MapPlaceholder 
+                            properties={displayedProperties} 
+                            selectedPropertyId={selectedPropertyId}
+                            onSelectProperty={setSelectedPropertyId}
+                            hoveredPropertyId={hoveredPropertyId}
+                            setHoveredPropertyId={setHoveredPropertyId}
+                            onClusterClick={handleClusterClick}
+                        />
+                    </aside>
                 </div>
-                {/* Right Column: Map */}
-                <aside className="hidden md:block md:w-1/3 lg:w-1/4 h-[calc(100vh-68px)] flex-shrink-0">
-                   <MapPlaceholder 
-                        properties={allProperties} 
-                        selectedPropertyId={selectedPropertyId}
-                        onSelectProperty={setSelectedPropertyId}
+
+                {/* --- Mobile Layout --- */}
+                <div className="flex flex-col md:hidden w-full h-full">
+                    <MobileControls 
+                        onFilterClick={() => setIsFilterModalOpen(true)}
+                        mobileView={mobileView}
+                        setMobileView={setMobileView}
                     />
-                </aside>
+                    <div className="flex-grow overflow-y-auto">
+                        {mobileView === 'list' && (
+                            <PropertyList 
+                                properties={displayedProperties} 
+                                loading={loading} 
+                                error={error}
+                                selectedPropertyId={selectedPropertyId}
+                                setSelectedPropertyId={setSelectedPropertyId}
+                                sources={sources}
+                                sortBy={sortBy}
+                                setSortBy={setSortBy}
+                                hoveredPropertyId={hoveredPropertyId}
+                                setHoveredPropertyId={setHoveredPropertyId}
+                                propertyCardRefs={propertyCardRefs}
+                                clusterFilterActive={!!clusterFilterIds}
+                                onClearClusterFilter={handleClearClusterFilter}
+                                favoritePropertyIds={favoritePropertyIds}
+                                onToggleFavorite={handleToggleFavorite}
+                                imageCache={imageCache}
+                                onImageGenerated={handleImageGenerated}
+                                enhancingPropertyId={enhancingPropertyId}
+                                onEnhanceImage={handleEnhanceImage}
+                            />
+                        )}
+                         {mobileView === 'map' && (
+                            <div className="h-full w-full">
+                                <MapPlaceholder 
+                                    properties={displayedProperties} 
+                                    selectedPropertyId={selectedPropertyId}
+                                    onSelectProperty={handleSelectPropertyFromMap}
+                                    hoveredPropertyId={hoveredPropertyId}
+                                    setHoveredPropertyId={setHoveredPropertyId}
+                                    onClusterClick={handleClusterClick}
+                                />
+                            </div>
+                        )}
+                    </div>
+                </div>
             </main>
             
             <PropertyDetailModal 
                 property={selectedProperty}
                 onClose={() => setSelectedPropertyId(null)}
+                enhancing={enhancingPropertyId === selectedProperty?.id}
+                onEnhanceImage={handleEnhanceImage}
             />
+            
+            <FilterModal 
+                isOpen={isFilterModalOpen} 
+                onClose={() => setIsFilterModalOpen(false)}
+            >
+                 {filterPanelComponent}
+            </FilterModal>
         </div>
     );
 };

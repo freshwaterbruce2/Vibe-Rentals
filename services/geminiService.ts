@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Property, Weather, Filters, School } from '../types';
 
 const API_KEY = process.env.API_KEY;
@@ -56,7 +56,7 @@ const withRetry = async <T>(apiCall: () => Promise<T>, maxRetries = 4, initialDe
 
 export const generateRentalListings = async (location: string, filters: Filters): Promise<RentalListingsResponse> => {
     const apiCall = async () => {
-        let prompt = `Search the web extensively for rental properties across Tennessee, focusing on listings from private landlords, rental agencies, and local Tennessee listing sites. Include standard rentals and "rent to own" properties. Find a diverse and realistic list of up to 15 properties in ${location}.`;
+        let prompt = `Search the web extensively for rental properties across Tennessee, focusing on listings from private landlords, smaller property management companies, and local Tennessee listing sites. Prioritize sources that are not major, national real estate aggregators. Include standard rentals and "rent to own" properties. Find a diverse and realistic list of up to 60 properties in ${location}.`;
 
         const hasFilters = filters.price.max < 10000 || filters.bedrooms !== 'any' || filters.bathrooms !== 'any' || filters.propertyType !== 'any' || filters.rentToOwn;
 
@@ -79,7 +79,7 @@ export const generateRentalListings = async (location: string, filters: Filters)
             }
         }
 
-        prompt += `\n\nFor each property, also find 2-3 nearby private schools and list their name and approximate distance (e.g., '1.2 miles'). Format the response as a valid JSON array of objects. Each object must conform to this TypeScript interface:
+        prompt += `\n\nFor each property, you MUST find contact information (a name, phone number, or email). Also find 2-3 nearby private schools and list their name and approximate distance (e.g., '1.2 miles'). Format the response as a valid JSON array of objects. Each object must conform to this TypeScript interface:
 interface Property {
   id: string; // A unique identifier
   address: string;
@@ -97,6 +97,7 @@ interface Property {
   lng: number; // Plausible longitude for the location
   isRentToOwn?: boolean; // Set to true if it is a rent-to-own property
   privateSchools?: { name: string; distance: string; }[]; // List of 2-3 nearby private schools with name and distance.
+  contact?: { name?: string; phone?: string; email?: string; }; // Contact info for the landlord or property manager.
 }
 Ensure the entire response is only the JSON array, with no surrounding text or markdown.`;
 
@@ -190,5 +191,92 @@ export const getWeatherInfo = async (location: string): Promise<Weather> => {
             throw error; // Re-throw errors from the apiCall
         }
         throw new Error("Failed to fetch weather information.");
+    }
+};
+
+export const generatePropertyImage = async (property: Property): Promise<string> => {
+    const apiCall = async () => {
+        const typeDescription = property.propertyType === 'Apartment' ? 'a modern apartment building' : `a charming ${property.propertyType}`;
+        const prompt = `A realistic, high-quality photograph of the exterior of ${typeDescription} in ${property.city}, ${property.state}. The style should be like a professional real estate listing photo, suitable for a sunny day.`;
+
+        const response = await ai.models.generateImages({
+            model: 'imagen-4.0-generate-001',
+            prompt: prompt,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio: '4:3',
+            },
+        });
+
+        if (!response.generatedImages || response.generatedImages.length === 0) {
+            throw new Error("Image generation failed, no images returned.");
+        }
+
+        const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
+        return `data:image/jpeg;base64,${base64ImageBytes}`;
+    };
+    
+    // Use a shorter retry for image generation as it can be a longer process
+    try {
+        return await withRetry(apiCall, 2, 2000);
+    } catch (error) {
+         console.error(`Error generating image for property ${property.id}:`, error);
+         throw new Error("Failed to generate property image.");
+    }
+};
+
+export const enhancePropertyImage = async (base64ImageData: string): Promise<string> => {
+    const apiCall = async () => {
+        // The base64 string might have a data URI prefix, e.g., "data:image/jpeg;base64,".
+        // The API needs just the raw base64 data.
+        const pureBase64 = base64ImageData.split(',')[1] || base64ImageData;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview',
+            contents: {
+                parts: [
+                    {
+                        inlineData: {
+                            data: pureBase64,
+                            mimeType: 'image/jpeg',
+                        },
+                    },
+                    {
+                        text: 'Enhance and upscale this real estate photo, significantly improving its resolution, lighting, and clarity. Make it look more professional and high-quality.',
+                    },
+                ],
+            },
+            config: {
+                responseModalities: [Modality.IMAGE, Modality.TEXT],
+            },
+        });
+
+        if (!response.candidates || response.candidates.length === 0) {
+            throw new Error("Image enhancement failed: No candidates returned.");
+        }
+
+        const imagePart = response.candidates[0].content.parts.find(part => part.inlineData);
+
+        if (!imagePart || !imagePart.inlineData) {
+            const safetyRatings = response.candidates?.[0]?.safetyRatings;
+            if(safetyRatings && safetyRatings.some(rating => rating.probability !== 'NEGLIGIBLE')) {
+                 throw new Error("Image enhancement blocked due to safety settings.");
+            }
+            throw new Error("Image enhancement failed: No image data in the response.");
+        }
+        
+        const base64ImageBytes: string = imagePart.inlineData.data;
+        return `data:image/jpeg;base64,${base64ImageBytes}`;
+    };
+
+    try {
+        return await withRetry(apiCall, 2, 2000);
+    } catch (error) {
+        console.error(`Error enhancing image:`, error);
+        if (error instanceof Error) {
+            throw error; // Re-throw specific errors
+        }
+        throw new Error("Failed to enhance property image.");
     }
 };
