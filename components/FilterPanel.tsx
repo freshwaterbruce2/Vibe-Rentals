@@ -19,6 +19,8 @@ interface FilterPanelProps {
     showFavoritesOnly: boolean;
     setShowFavoritesOnly: (value: boolean) => void;
     hasFavorites: boolean;
+    onClearFilters: () => void;
+    onClearFavorites: () => void;
 }
 
 const FilterButton: React.FC<{ value: any; current: any; onClick: (value: any) => void; children: React.ReactNode }> = ({ value, current, onClick, children }) => {
@@ -38,7 +40,7 @@ const FilterButton: React.FC<{ value: any; current: any; onClick: (value: any) =
 export const FilterPanel: React.FC<FilterPanelProps> = ({ 
     filters, setFilters, propertyCount, weather, weatherLoading, weatherError, location, 
     onApplyFilters, loading, onSaveSettings, onLoadSettings, savedSettingsExist,
-    showFavoritesOnly, setShowFavoritesOnly, hasFavorites
+    showFavoritesOnly, setShowFavoritesOnly, hasFavorites, onClearFilters, onClearFavorites
 }) => {
     const [saveButtonText, setSaveButtonText] = React.useState('Save Settings');
 
@@ -74,11 +76,21 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
                 error={weatherError}
                 location={location}
             />
-            <h2 className="text-xl font-bold text-brand-text">Filters</h2>
+            <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-brand-text">Filters</h2>
+                <button 
+                    onClick={onClearFilters} 
+                    className="text-xs text-brand-primary hover:underline disabled:text-gray-500 disabled:no-underline"
+                    disabled={loading}
+                >
+                    Clear Filters
+                </button>
+            </div>
+
 
             {hasFavorites && (
-                 <div>
-                     <label htmlFor="favorites-toggle" className="flex items-center justify-between cursor-pointer p-3 bg-brand-background rounded-lg">
+                 <div className="space-y-3 p-3 bg-brand-background rounded-lg">
+                     <label htmlFor="favorites-toggle" className="flex items-center justify-between cursor-pointer">
                         <span className="flex items-center text-sm font-medium text-brand-primary">
                              <HeartIcon className="w-5 h-5 mr-2" filled={showFavoritesOnly} />
                              Show Favorites Only
@@ -94,6 +106,12 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
                             <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-brand-primary peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-primary"></div>
                         </div>
                     </label>
+                    <button
+                        onClick={onClearFavorites}
+                        className="w-full text-center text-xs text-red-400 hover:underline"
+                    >
+                        Clear All Favorites
+                    </button>
                 </div>
             )}
             
@@ -123,6 +141,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
             <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">Bathrooms</label>
                 <div className="flex space-x-2">
+                    {/* FIX: Mismatched closing tag corrected from </Button> to </FilterButton> */}
                     <FilterButton value="any" current={filters.bathrooms} onClick={handleBathroomChange}>Any</FilterButton>
                     {[1, 1.5, 2, 2.5, 3].map(v => <FilterButton key={v} value={v} current={filters.bathrooms} onClick={handleBathroomChange}>{v}{v % 1 !== 0 ? '' : '+'}</FilterButton>)}
                 </div>

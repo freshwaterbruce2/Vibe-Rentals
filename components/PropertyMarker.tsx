@@ -15,8 +15,8 @@ interface PropertyMarkerProps {
 export const PropertyMarker: React.FC<PropertyMarkerProps> = ({ property, isSelected, isHovered, style, onSelect, onMouseEnter, onMouseLeave }) => {
     return (
         <div
-            className="absolute transform -translate-x-1/2 -translate-y-full transition-transform duration-300 ease-in-out"
-            style={{ ...style, transform: `translate(-50%, -100%) scale(${isSelected ? 1.2 : 1})` }}
+            className="absolute"
+            style={{ ...style, transform: `translate(-50%, -100%)` }}
         >
             {/* Tooltip on hover */}
             {isHovered && !isSelected && (
@@ -26,8 +26,11 @@ export const PropertyMarker: React.FC<PropertyMarkerProps> = ({ property, isSele
                 </div>
             )}
 
-            <div
-                className="relative flex flex-col items-center cursor-pointer"
+            <button
+                type="button"
+                aria-label={`Select property at ${property.address}`}
+                className="relative flex flex-col items-center cursor-pointer transition-transform duration-300 ease-in-out"
+                style={{transform: `scale(${isSelected ? 1.2 : 1})`}}
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
                 onClick={() => onSelect(isSelected ? null : property.id)}
@@ -45,7 +48,7 @@ export const PropertyMarker: React.FC<PropertyMarkerProps> = ({ property, isSele
                 <LocationMarkerIcon
                     className={`relative z-[1] w-6 h-6 mx-auto transition-colors duration-300 ${isSelected ? 'text-brand-primary' : isHovered ? 'text-brand-primary/80' : 'text-brand-secondary'}`}
                 />
-            </div>
+            </button>
         </div>
     );
 };

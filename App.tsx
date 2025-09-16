@@ -20,17 +20,18 @@ const initialFilters: Filters = {
 const App: React.FC = () => {
     const [allProperties, setAllProperties] = useState<Property[]>([]);
     const [sources, setSources] = useState<any[]>([]);
-    const [loading, setLoading] = useState<boolean>(true);
+    const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [isInitialLoad, setIsInitialLoad] = useState<boolean>(true);
     
-    const [location, setLocation] = useState<string>('Nashville, TN');
-    const [searchedLocation, setSearchedLocation] = useState<string>('Nashville, TN');
+    const [location, setLocation] = useState<string>('');
+    const [searchedLocation, setSearchedLocation] = useState<string>('');
 
     const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
     const [hoveredPropertyId, setHoveredPropertyId] = useState<string | null>(null);
     
     const [weather, setWeather] = useState<Weather | null>(null);
-    const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
+    const [weatherLoading, setWeatherLoading] = useState<boolean>(false);
     const [weatherError, setWeatherError] = useState<string | null>(null);
 
     const [filters, setFilters] = useState<Filters>(initialFilters);
@@ -54,6 +55,7 @@ const App: React.FC = () => {
 
     const listingsCache = useRef<Record<string, { properties: Property[]; sources: any[] }>>({});
     const weatherCache = useRef<Record<string, Weather>>({});
+    const modalTriggerRef = useRef<HTMLElement | null>(null);
 
     useEffect(() => {
         try {
@@ -79,6 +81,15 @@ const App: React.FC = () => {
 
     useEffect(() => {
         const fetchListings = async () => {
+            if (!searchedLocation) {
+                // Don't fetch if no location is set (initial state)
+                setAllProperties([]);
+                setSources([]);
+                setLoading(false);
+                return;
+            }
+            setIsInitialLoad(false);
+
             const cacheKey = `${searchedLocation}-${JSON.stringify(appliedFilters)}`;
             if (listingsCache.current[cacheKey]) {
                 const cachedData = listingsCache.current[cacheKey];
@@ -149,6 +160,7 @@ const App: React.FC = () => {
     }, [selectedPropertyId, mobileView]);
 
     const handleSearch = () => {
+       if (location.trim() === '') return;
        setAppliedFilters(filters);
        setSearchedLocation(location);
     };
@@ -168,6 +180,7 @@ const App: React.FC = () => {
             setSavedSettingsExist(true);
         } catch (error) {
             console.error("Could not save settings to localStorage:", error);
+            alert("Error: Could not save settings. Your browser's storage might be disabled or full.");
         }
     };
 
@@ -186,6 +199,7 @@ const App: React.FC = () => {
             }
         } catch (error) {
             console.error("Could not load or parse settings from localStorage:", error);
+            alert("Error: Could not load settings.");
         }
     };
     
@@ -214,9 +228,17 @@ const App: React.FC = () => {
     const handleSelectPropertyFromMap = (id: string | null) => {
         setSelectedPropertyId(id);
         if(id) {
+            modalTriggerRef.current = document.activeElement as HTMLElement;
             setMobileView('list');
         }
     };
+
+    const handleSelectPropertyFromList = (id: string | null) => {
+        if (id) {
+            modalTriggerRef.current = document.activeElement as HTMLElement;
+        }
+        setSelectedPropertyId(id);
+    }
     
     const handleImageGenerated = (propertyId: string, imageUrl: string) => {
         setImageCache(prevCache => ({
@@ -241,6 +263,17 @@ const App: React.FC = () => {
             // Optionally, set an error state to show a toast message to the user.
         } finally {
             setEnhancingPropertyId(null);
+        }
+    };
+
+    const handleClearFilters = () => {
+        setFilters(initialFilters);
+    };
+
+    const handleClearFavorites = () => {
+        if (window.confirm("Are you sure you want to clear all your favorites?")) {
+            setFavoritePropertyIds(new Set());
+            setShowFavoritesOnly(false);
         }
     };
 
@@ -301,6 +334,8 @@ const App: React.FC = () => {
             showFavoritesOnly={showFavoritesOnly}
             setShowFavoritesOnly={setShowFavoritesOnly}
             hasFavorites={favoritePropertyIds.size > 0}
+            onClearFilters={handleClearFilters}
+            onClearFavorites={handleClearFavorites}
         />
     );
 
@@ -324,7 +359,7 @@ const App: React.FC = () => {
                             loading={loading} 
                             error={error}
                             selectedPropertyId={selectedPropertyId}
-                            setSelectedPropertyId={setSelectedPropertyId}
+                            setSelectedPropertyId={handleSelectPropertyFromList}
                             sources={sources}
                             sortBy={sortBy}
                             setSortBy={setSortBy}
@@ -339,13 +374,14 @@ const App: React.FC = () => {
                             onImageGenerated={handleImageGenerated}
                             enhancingPropertyId={enhancingPropertyId}
                             onEnhanceImage={handleEnhanceImage}
+                            isInitialLoad={isInitialLoad}
                         />
                     </div>
                     <aside className="w-1/3 lg:w-1/4 h-full flex-shrink-0">
                         <MapPlaceholder 
                             properties={displayedProperties} 
                             selectedPropertyId={selectedPropertyId}
-                            onSelectProperty={setSelectedPropertyId}
+                            onSelectProperty={handleSelectPropertyFromMap}
                             hoveredPropertyId={hoveredPropertyId}
                             setHoveredPropertyId={setHoveredPropertyId}
                             onClusterClick={handleClusterClick}
@@ -356,7 +392,10 @@ const App: React.FC = () => {
                 {/* --- Mobile Layout --- */}
                 <div className="flex flex-col md:hidden w-full h-full">
                     <MobileControls 
-                        onFilterClick={() => setIsFilterModalOpen(true)}
+                        onFilterClick={() => {
+                            modalTriggerRef.current = document.activeElement as HTMLElement;
+                            setIsFilterModalOpen(true)
+                        }}
                         mobileView={mobileView}
                         setMobileView={setMobileView}
                     />
@@ -367,7 +406,7 @@ const App: React.FC = () => {
                                 loading={loading} 
                                 error={error}
                                 selectedPropertyId={selectedPropertyId}
-                                setSelectedPropertyId={setSelectedPropertyId}
+                                setSelectedPropertyId={handleSelectPropertyFromList}
                                 sources={sources}
                                 sortBy={sortBy}
                                 setSortBy={setSortBy}
@@ -382,6 +421,7 @@ const App: React.FC = () => {
                                 onImageGenerated={handleImageGenerated}
                                 enhancingPropertyId={enhancingPropertyId}
                                 onEnhanceImage={handleEnhanceImage}
+                                isInitialLoad={isInitialLoad}
                             />
                         )}
                          {mobileView === 'map' && (
@@ -402,14 +442,20 @@ const App: React.FC = () => {
             
             <PropertyDetailModal 
                 property={selectedProperty}
-                onClose={() => setSelectedPropertyId(null)}
+                onClose={() => {
+                    setSelectedPropertyId(null);
+                    modalTriggerRef.current?.focus();
+                }}
                 enhancing={enhancingPropertyId === selectedProperty?.id}
                 onEnhanceImage={handleEnhanceImage}
             />
             
             <FilterModal 
                 isOpen={isFilterModalOpen} 
-                onClose={() => setIsFilterModalOpen(false)}
+                onClose={() => {
+                    setIsFilterModalOpen(false);
+                    modalTriggerRef.current?.focus();
+                }}
             >
                  {filterPanelComponent}
             </FilterModal>

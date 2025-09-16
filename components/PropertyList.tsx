@@ -2,6 +2,8 @@ import React from 'react';
 import { Property } from '../types';
 import { PropertyCard } from './PropertyCard';
 import { SkeletonCard } from './SkeletonCard';
+import { LocationMarkerIcon } from './icons/LocationMarkerIcon';
+
 
 interface PropertyListProps {
     properties: Property[];
@@ -23,13 +25,26 @@ interface PropertyListProps {
     onImageGenerated: (propertyId: string, imageUrl: string) => void;
     enhancingPropertyId: string | null;
     onEnhanceImage: (propertyId: string) => void;
+    isInitialLoad: boolean;
 }
 
 export const PropertyList: React.FC<PropertyListProps> = ({ 
     properties, loading, error, selectedPropertyId, setSelectedPropertyId, sources, sortBy, setSortBy, 
     hoveredPropertyId, setHoveredPropertyId, propertyCardRefs, clusterFilterActive, onClearClusterFilter,
-    favoritePropertyIds, onToggleFavorite, imageCache, onImageGenerated, enhancingPropertyId, onEnhanceImage
+    favoritePropertyIds, onToggleFavorite, imageCache, onImageGenerated, enhancingPropertyId, onEnhanceImage,
+    isInitialLoad
 }) => {
+
+    if (isInitialLoad) {
+        return (
+             <div className="p-4 text-center text-gray-400 h-full flex flex-col justify-center items-center">
+                <LocationMarkerIcon className="w-24 h-24 text-brand-secondary" />
+                <h2 className="text-2xl font-bold text-brand-text mt-4 mb-2">Welcome to RentScout</h2>
+                <p>Your AI-powered property finding assistant.</p>
+                <p>Enter a location in the search bar above to begin.</p>
+            </div>
+        );
+    }
     
     if (error) {
         return <div className="p-4 text-red-400 text-center">{error}</div>;
@@ -46,7 +61,7 @@ export const PropertyList: React.FC<PropertyListProps> = ({
     if (properties.length === 0 && !loading) {
         return (
             <div className="p-4 text-center text-gray-400">
-                <p className="mb-4">No properties found. Try adjusting your filters.</p>
+                <p className="mb-4">No properties found. Try adjusting your search or filters.</p>
                 {clusterFilterActive && (
                     <button
                         onClick={onClearClusterFilter}
