@@ -56,7 +56,7 @@ const withRetry = async <T>(apiCall: () => Promise<T>, maxRetries = 4, initialDe
 
 export const generateRentalListings = async (location: string, filters: Filters): Promise<RentalListingsResponse> => {
     const apiCall = async () => {
-        let prompt = `Search the web extensively for rental properties across Tennessee, focusing on listings from private landlords, smaller property management companies, and local Tennessee listing sites. Prioritize sources that are not major, national real estate aggregators. Include standard rentals and "rent to own" properties. Find a diverse and realistic list of up to 60 properties in ${location}.`;
+        let prompt = `Search the web extensively for rental properties across Tennessee, focusing on listings from private landlords, smaller property management companies, and local Tennessee listing sites. Prioritize sources that are not major, national real estate aggregators. Include standard rentals and "rent to own" properties. Find a diverse and realistic list of up to 100 properties in ${location}.`;
 
         const hasFilters = filters.price.max < 10000 || filters.bedrooms !== 'any' || filters.bathrooms !== 'any' || filters.propertyType !== 'any' || filters.rentToOwn;
 
@@ -110,6 +110,11 @@ Ensure the entire response is only the JSON array, with no surrounding text or m
         });
         
         if (!response || !response.text) {
+            const candidate = response?.candidates?.[0];
+            const finishReason = candidate?.finishReason;
+            if (finishReason === 'SAFETY') {
+                throw new Error("The AI model's response was blocked due to safety settings. Please try a different search.");
+            }
             console.error("No text content received from Gemini API for rental listings.", response);
             throw new Error("The AI model did not return any content. This could be due to a safety block or an empty response.");
         }
@@ -121,25 +126,35 @@ Ensure the entire response is only the JSON array, with no surrounding text or m
              jsonText = jsonText.substring(3, jsonText.length - 3).trim();
         }
         
-        const properties = JSON.parse(jsonText) as Property[];
-        const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-
-        return { properties, sources };
+        try {
+            const properties = JSON.parse(jsonText) as Property[];
+            const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+            return { properties, sources };
+        } catch (e) {
+            console.error("Failed to parse JSON from Gemini response. Raw text:", jsonText);
+            if (e instanceof SyntaxError) {
+                // Check for a conversational refusal which causes the JSON parse to fail.
+                if (/^I am unabl|^I cannot|^I'm sorry/i.test(jsonText)) {
+                    throw new Error("The AI was unable to find listings for your specific criteria. Please try a broader search.");
+                }
+                // Otherwise, it's a genuine JSON syntax error.
+                throw new Error("Failed to parse property listings from AI response. The format was invalid.");
+            }
+            // Re-throw any other type of error (not a SyntaxError).
+            throw e;
+        }
     };
     
     try {
         return await withRetry(apiCall);
     } catch (error) {
         console.error("Error generating rental listings:", error);
-        if (error instanceof SyntaxError) {
-             throw new Error("Failed to parse property listings from AI response. The format was invalid.");
-        }
         const errorMessage = JSON.stringify(error).toLowerCase();
         if (errorMessage.includes('429') || errorMessage.includes('resource_exhausted')) {
             throw new Error("API quota exceeded. Please wait a moment before trying again.");
         }
         if (error instanceof Error) {
-            throw error; // Re-throw errors from the apiCall like the custom one.
+            throw error; // Re-throw errors from the apiCall, including our new custom ones.
         }
         throw new Error("Failed to fetch rental listings. Please try again later.");
     }
